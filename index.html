@@ -1152,9 +1152,16 @@
     <div id="settings-modal">
         <div class="settings-content">
             <h3>⚙️ Sozlamalar</h3>
+            <label for="jsonbin-id">jsonbin.io Bin ID (bulut saqlash)</label>
+            <input type="text" id="jsonbin-id" placeholder="Bin ID (masalan: 6600000000000000000000aa)">
+            <p class="settings-hint">Ma'lumotlar boshqa qurilmalarda ko'rinishi uchun jsonbin.io saytidan bitta bin yarating va uning ID sini shu yerga joylang. Bin yaratish: jsonbin.io → Create Bin</p>
+            <label for="jsonbin-key">jsonbin.io API kaliti (X-Master-Key)</label>
+            <input type="password" id="jsonbin-key" placeholder="API kalit ($2a$10$...)">
+            <p class="settings-hint">API kalit: jsonbin.io → API Keys → Create API Key. Bir marta qurilmada kiritsangiz kifoya, sinxronlash avtomatik ishlaydi.</p>
             <label for="gmaps-key">Google Street View API kaliti</label>
             <input type="text" id="gmaps-key" placeholder="Google API kalit (Street View Static/Embed)">
             <p class="settings-hint">Kalit: developers.google.com/maps - Street View Static API ni yoqib oling</p>
+            <div id="cloud-status" class="settings-hint"></div>
             <div class="settings-buttons">
                 <button type="button" class="btn-add" id="btn-save-key">Saqlash</button>
                 <button type="button" class="btn-cancel" id="btn-cancel-key">Bekor qilish</button>
@@ -1200,6 +1207,7 @@
         function saveStudents() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+                scheduleCloudPush();
             } catch (e) {
                 console.warn('Ma\'lumot saqlanmadi:', e);
             }
@@ -1773,8 +1781,23 @@
         });
 
         // ==================== SOZLAMALAR ====================
+        const JSONBIN_ID_STORAGE = 'tolib_tracker_jsonbin_id';
+        const JSONBIN_KEY_STORAGE = 'tolib_tracker_jsonbin_key';
+        let jsonbinId = localStorage.getItem(JSONBIN_ID_STORAGE) || '';
+        let jsonbinKey = localStorage.getItem(JSONBIN_KEY_STORAGE) || '';
+
         function openSettings() {
+            document.getElementById('jsonbin-id').value = jsonbinId;
+            document.getElementById('jsonbin-key').value = jsonbinKey;
             document.getElementById('gmaps-key').value = gmapsKey;
+            const st = document.getElementById('cloud-status');
+            if (jsonbinId && jsonbinKey) {
+                st.innerHTML = '☁️ Bulut ulangan';
+                st.style.color = '#047857';
+            } else {
+                st.innerHTML = '☁️ Bulut sozlanmagan — ma\'lumotlar faqat shu qurilmada';
+                st.style.color = '#b91c1c';
+            }
             document.getElementById('settings-modal').style.display = 'flex';
         }
 
@@ -1785,9 +1808,103 @@
         document.getElementById('btn-save-key').addEventListener('click', () => {
             gmapsKey = document.getElementById('gmaps-key').value.trim();
             localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
+            jsonbinId = document.getElementById('jsonbin-id').value.trim();
+            jsonbinKey = document.getElementById('jsonbin-key').value.trim();
+            localStorage.setItem(JSONBIN_ID_STORAGE, jsonbinId);
+            localStorage.setItem(JSONBIN_KEY_STORAGE, jsonbinKey);
             document.getElementById('settings-modal').style.display = 'none';
-            showToast('✅ Sozlamalar saqlandi');
+            if (jsonbinId && jsonbinKey) {
+                showToast('☁️ Sozlamalar saqlandi, bulut sinxronlashda...');
+                pushToCloud();
+            } else {
+                showToast('✅ Sozlamalar saqlandi');
+            }
         });
+
+        // ==================== BULUT SINXRONLASH (jsonbin.io) ====================
+        function cloudPayload() {
+            return {
+                students: students,
+                rentals: getRentals(),
+                univPhoto: getUnivPhoto() || '',
+                gmapsKey: gmapsKey
+            };
+        }
+
+        function cloudSizeInfo() {
+            try {
+                const kb = (new Blob([JSON.stringify(cloudPayload())]).size / 1024);
+                return kb.toFixed(0) + ' KB';
+            } catch (e) {
+                return '?';
+            }
+        }
+
+        function pushToCloud() {
+            if (!jsonbinId || !jsonbinKey) return Promise.resolve(false);
+            const payload = cloudPayload();
+            const kb = cloudSizeInfo();
+            if (parseInt(kb) > 90) {
+                showToast('⚠️ Bulut hajmi limitga yaqin (' + kb + '/100KB) — rasmlar kamaytirilsin');
+            }
+            return fetch('https://api.jsonbin.io/v3/b/' + jsonbinId, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': jsonbinKey
+                },
+                body: JSON.stringify(payload)
+            }).then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return true;
+            }).catch(err => {
+                console.warn('Bulutga yuborish muvaffaqiyatsiz:', err);
+                return false;
+            });
+        }
+
+        function pullFromCloud() {
+            if (!jsonbinId || !jsonbinKey) return Promise.resolve(false);
+            return fetch('https://api.jsonbin.io/v3/b/' + jsonbinId + '/latest', {
+                headers: { 'X-Master-Key': jsonbinKey }
+            }).then(res => {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            }).then(data => {
+                const rec = data.record || data;
+                let changed = false;
+                if (Array.isArray(rec.students)) {
+                    students.splice(0, students.length, ...rec.students);
+                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch (e) {}
+                    changed = true;
+                }
+                if (Array.isArray(rec.rentals)) {
+                    try { localStorage.setItem(RENT_STORAGE, JSON.stringify(rec.rentals)); } catch (e) {}
+                    changed = true;
+                }
+                if (typeof rec.univPhoto === 'string') {
+                    try {
+                        if (rec.univPhoto) localStorage.setItem(UNIV_PHOTO_KEY, rec.univPhoto);
+                        else localStorage.removeItem(UNIV_PHOTO_KEY);
+                    } catch (e) {}
+                    changed = true;
+                }
+                if (typeof rec.gmapsKey === 'string' && rec.gmapsKey) {
+                    gmapsKey = rec.gmapsKey;
+                    localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
+                }
+                return changed;
+            }).catch(err => {
+                console.warn('Bulutdan yuklash muvaffaqiyatsiz:', err);
+                return false;
+            });
+        }
+
+        let cloudSyncTimer = null;
+        function scheduleCloudPush() {
+            clearTimeout(cloudSyncTimer);
+            cloudSyncTimer = setTimeout(() => pushToCloud(), 800);
+        }
 
         // ==================== BO'LIM ALMASHTIRISH ====================
         function switchSection(sec) {
@@ -1945,6 +2062,7 @@
             try {
                 if (dataUrl) localStorage.setItem(UNIV_PHOTO_KEY, dataUrl);
                 else localStorage.removeItem(UNIV_PHOTO_KEY);
+                scheduleCloudPush();
                 return true;
             } catch (e) {
                 return false;
@@ -2111,6 +2229,7 @@
         function saveRentals(list) {
             try {
                 localStorage.setItem(RENT_STORAGE, JSON.stringify(list));
+                scheduleCloudPush();
                 return true;
             } catch (e) {
                 showToast('❌ Xotira to\'ldi! Rasm o\'lchami katta');
@@ -2755,6 +2874,24 @@
         });
 
         renderRentList();
+
+        // Bulutdan ma'lumot yuklash (agar sozlangan bo'lsa)
+        pullFromCloud().then(changed => {
+            if (changed) {
+                renderList();
+                renderMarkers();
+                renderRentList();
+                renderRentMapMarkers();
+                if (rentMap) {
+                    refreshUnivMarker();
+                    rentMap.invalidateSize();
+                }
+                if (document.getElementById('section2').style.display !== 'none') {
+                    refreshUnivPhotoUI();
+                }
+                showToast('☁️ Bulutdan ma\'lumotlar yuklandi');
+            }
+        });
     </script>
 </body>
 </html>
