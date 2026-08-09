@@ -1782,7 +1782,8 @@
 
         // ==================== SOZLAMALAR ====================
         const GCLIENT_ID_STORAGE = 'tolib_tracker_google_client_id';
-        let googleClientId = localStorage.getItem(GCLIENT_ID_STORAGE) || '';
+        const DEFAULT_GCLIENT_ID = '488899986676-afde7ggd19r6vpqpc3snl9ad0s5thpgl.apps.googleusercontent.com';
+        let googleClientId = localStorage.getItem(GCLIENT_ID_STORAGE) || DEFAULT_GCLIENT_ID;
         let googleToken = null;
         let tokenClient = null;
         const DRIVE_FILE_NAME = 'tolib-tracker-data.json';
@@ -1794,12 +1795,9 @@
             if (googleToken) {
                 st.innerHTML = '✅ Google Drive ulangan';
                 st.style.color = '#047857';
-            } else if (googleClientId) {
+            } else {
                 st.innerHTML = '🔗 Google Drive'ga ulanish tugmasini bosing';
                 st.style.color = '#854d0e';
-            } else {
-                st.innerHTML = '☁️ Client ID kiritilmagan — ma\'lumotlar faqat shu qurilmada';
-                st.style.color = '#b91c1c';
             }
             document.getElementById('settings-modal').style.display = 'flex';
         }
