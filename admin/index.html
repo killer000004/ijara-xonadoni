@@ -6,6 +6,8 @@
     <title>Tolib-Tracker - Talabalar Lokatsiyasi</title>
     <!-- Leaflet CSS (Xarita uchun) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Google Identity Services (Drive sinxronlash uchun) -->
+    <script src="https://accounts.google.com/gsi/client"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -1152,16 +1154,14 @@
     <div id="settings-modal">
         <div class="settings-content">
             <h3>⚙️ Sozlamalar</h3>
-            <label for="jsonbin-id">jsonbin.io Bin ID (bulut saqlash)</label>
-            <input type="text" id="jsonbin-id" placeholder="Bin ID (masalan: 6600000000000000000000aa)">
-            <p class="settings-hint">Ma'lumotlar boshqa qurilmalarda ko'rinishi uchun jsonbin.io saytidan bitta bin yarating va uning ID sini shu yerga joylang. Bin yaratish: jsonbin.io → Create Bin</p>
-            <label for="jsonbin-key">jsonbin.io API kaliti (X-Master-Key)</label>
-            <input type="password" id="jsonbin-key" placeholder="API kalit ($2a$10$...)">
-            <p class="settings-hint">API kalit: jsonbin.io → API Keys → Create API Key. Bir marta qurilmada kiritsangiz kifoya, sinxronlash avtomatik ishlaydi.</p>
+            <label for="google-client-id">Google Drive Client ID (OAuth)</label>
+            <input type="text" id="google-client-id" placeholder="Google OAuth Client ID (…apps.googleusercontent.com)">
+            <p class="settings-hint">Ma'lumotlar boshqa qurilmalarda ko'rinishi uchun Google Cloud konsolidan OAuth Client ID yarating (Web application) va shu yerga joylang.</p>
+            <button type="button" class="btn-add" id="btn-google-connect" style="margin-bottom:12px;">🔗 Google Drive'ga ulanish</button>
+            <div id="cloud-status" class="settings-hint"></div>
             <label for="gmaps-key">Google Street View API kaliti</label>
             <input type="text" id="gmaps-key" placeholder="Google API kalit (Street View Static/Embed)">
             <p class="settings-hint">Kalit: developers.google.com/maps - Street View Static API ni yoqib oling</p>
-            <div id="cloud-status" class="settings-hint"></div>
             <div class="settings-buttons">
                 <button type="button" class="btn-add" id="btn-save-key">Saqlash</button>
                 <button type="button" class="btn-cancel" id="btn-cancel-key">Bekor qilish</button>
@@ -1781,25 +1781,77 @@
         });
 
         // ==================== SOZLAMALAR ====================
-        const JSONBIN_ID_STORAGE = 'tolib_tracker_jsonbin_id';
-        const JSONBIN_KEY_STORAGE = 'tolib_tracker_jsonbin_key';
-        let jsonbinId = localStorage.getItem(JSONBIN_ID_STORAGE) || '';
-        let jsonbinKey = localStorage.getItem(JSONBIN_KEY_STORAGE) || '';
+        const GCLIENT_ID_STORAGE = 'tolib_tracker_google_client_id';
+        let googleClientId = localStorage.getItem(GCLIENT_ID_STORAGE) || '';
+        let googleToken = null;
+        let tokenClient = null;
+        const DRIVE_FILE_NAME = 'tolib-tracker-data.json';
 
         function openSettings() {
-            document.getElementById('jsonbin-id').value = jsonbinId;
-            document.getElementById('jsonbin-key').value = jsonbinKey;
+            document.getElementById('google-client-id').value = googleClientId;
             document.getElementById('gmaps-key').value = gmapsKey;
             const st = document.getElementById('cloud-status');
-            if (jsonbinId && jsonbinKey) {
-                st.innerHTML = '☁️ Bulut ulangan';
+            if (googleToken) {
+                st.innerHTML = '✅ Google Drive ulangan';
                 st.style.color = '#047857';
+            } else if (googleClientId) {
+                st.innerHTML = '🔗 Google Drive'ga ulanish tugmasini bosing';
+                st.style.color = '#854d0e';
             } else {
-                st.innerHTML = '☁️ Bulut sozlanmagan — ma\'lumotlar faqat shu qurilmada';
+                st.innerHTML = '☁️ Client ID kiritilmagan — ma\'lumotlar faqat shu qurilmada';
                 st.style.color = '#b91c1c';
             }
             document.getElementById('settings-modal').style.display = 'flex';
         }
+
+        function initGoogleClient() {
+            if (!window.google || !google.accounts || !googleClientId) return;
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: googleClientId,
+                scope: 'https://www.googleapis.com/auth/drive.file',
+                callback: (resp) => {
+                    if (resp && resp.access_token) {
+                        googleToken = resp.access_token;
+                        showToast('✅ Google Drive ulandi');
+                        pullFromCloud().then(() => {
+                            renderList();
+                            renderMarkers();
+                            renderRentList();
+                            renderRentMapMarkers();
+                            if (rentMap) {
+                                refreshUnivMarker();
+                                rentMap.invalidateSize();
+                            }
+                            if (document.getElementById('section2').style.display !== 'none') {
+                                refreshUnivPhotoUI();
+                            }
+                            pushToCloud();
+                        });
+                    } else {
+                        showToast('❌ Google Drive ulanishi muvaffaqiyatsiz');
+                    }
+                }
+            });
+        }
+
+        document.getElementById('btn-google-connect').addEventListener('click', () => {
+            googleClientId = document.getElementById('google-client-id').value.trim();
+            localStorage.setItem(GCLIENT_ID_STORAGE, googleClientId);
+            if (!googleClientId) {
+                showToast('⚠️ Avval Client ID ni kiriting');
+                return;
+            }
+            if (googleToken) {
+                showToast('✅ Google Drive allaqachon ulangan');
+                return;
+            }
+            initGoogleClient();
+            if (tokenClient) {
+                tokenClient.requestAccessToken();
+            } else {
+                showToast('⚠️ Google skript yuklanmadi. Internetni tekshiring');
+            }
+        });
 
         document.getElementById('btn-settings').addEventListener('click', openSettings);
         document.getElementById('btn-cancel-key').addEventListener('click', () => {
@@ -1808,20 +1860,13 @@
         document.getElementById('btn-save-key').addEventListener('click', () => {
             gmapsKey = document.getElementById('gmaps-key').value.trim();
             localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
-            jsonbinId = document.getElementById('jsonbin-id').value.trim();
-            jsonbinKey = document.getElementById('jsonbin-key').value.trim();
-            localStorage.setItem(JSONBIN_ID_STORAGE, jsonbinId);
-            localStorage.setItem(JSONBIN_KEY_STORAGE, jsonbinKey);
+            googleClientId = document.getElementById('google-client-id').value.trim();
+            localStorage.setItem(GCLIENT_ID_STORAGE, googleClientId);
             document.getElementById('settings-modal').style.display = 'none';
-            if (jsonbinId && jsonbinKey) {
-                showToast('☁️ Sozlamalar saqlandi, bulut sinxronlashda...');
-                pushToCloud();
-            } else {
-                showToast('✅ Sozlamalar saqlandi');
-            }
+            showToast('✅ Sozlamalar saqlandi');
         });
 
-        // ==================== BULUT SINXRONLASH (jsonbin.io) ====================
+        // ==================== BULUT SINXRONLASH (Google Drive) ====================
         function cloudPayload() {
             return {
                 students: students,
@@ -1831,79 +1876,103 @@
             };
         }
 
-        function cloudSizeInfo() {
-            try {
-                const kb = (new Blob([JSON.stringify(cloudPayload())]).size / 1024);
-                return kb.toFixed(0) + ' KB';
-            } catch (e) {
-                return '?';
-            }
+        function driveFetch(url, opts) {
+            return fetch(url, Object.assign({
+                headers: { 'Authorization': 'Bearer ' + googleToken }
+            }, opts || {}));
+        }
+
+        function findDriveFile() {
+            return driveFetch('https://www.googleapis.com/drive/v3/files?q=' +
+                encodeURIComponent("name='" + DRIVE_FILE_NAME + "' and trashed=false") +
+                '&fields=files(id,name,mimeType)')
+                .then(res => res.json())
+                .then(data => (data.files && data.files.length) ? data.files[0] : null)
+                .catch(() => null);
         }
 
         function pushToCloud() {
-            if (!jsonbinId || !jsonbinKey) return Promise.resolve(false);
-            const payload = cloudPayload();
-            const kb = cloudSizeInfo();
-            if (parseInt(kb) > 90) {
-                showToast('⚠️ Bulut hajmi limitga yaqin (' + kb + '/100KB) — rasmlar kamaytirilsin');
-            }
-            return fetch('https://api.jsonbin.io/v3/b/' + jsonbinId, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Master-Key': jsonbinKey
-                },
-                body: JSON.stringify(payload)
-            }).then(res => {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                return true;
-            }).catch(err => {
-                console.warn('Bulutga yuborish muvaffaqiyatsiz:', err);
-                return false;
-            });
+            if (!googleToken) return Promise.resolve(false);
+            const payload = JSON.stringify(cloudPayload());
+            return findDriveFile()
+                .then(file => {
+                    const uploadUrl = file
+                        ? 'https://www.googleapis.com/upload/drive/v3/files/' + file.id + '?uploadType=media'
+                        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
+                    const method = file ? 'PATCH' : 'POST';
+                    return driveFetch(uploadUrl, {
+                        method: method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: payload
+                    });
+                })
+                .then(res => {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return true;
+                })
+                .catch(err => {
+                    console.warn('Google Drive yozish muvaffaqiyatsiz:', err);
+                    return false;
+                });
         }
 
         function pullFromCloud() {
-            if (!jsonbinId || !jsonbinKey) return Promise.resolve(false);
-            return fetch('https://api.jsonbin.io/v3/b/' + jsonbinId + '/latest', {
-                headers: { 'X-Master-Key': jsonbinKey }
-            }).then(res => {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                return res.json();
-            }).then(data => {
-                const rec = data.record || data;
-                let changed = false;
-                if (Array.isArray(rec.students)) {
-                    students.splice(0, students.length, ...rec.students);
-                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch (e) {}
-                    changed = true;
-                }
-                if (Array.isArray(rec.rentals)) {
-                    try { localStorage.setItem(RENT_STORAGE, JSON.stringify(rec.rentals)); } catch (e) {}
-                    changed = true;
-                }
-                if (typeof rec.univPhoto === 'string') {
-                    try {
-                        if (rec.univPhoto) localStorage.setItem(UNIV_PHOTO_KEY, rec.univPhoto);
-                        else localStorage.removeItem(UNIV_PHOTO_KEY);
-                    } catch (e) {}
-                    changed = true;
-                }
-                if (typeof rec.gmapsKey === 'string' && rec.gmapsKey) {
-                    gmapsKey = rec.gmapsKey;
-                    localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
-                }
-                return changed;
-            }).catch(err => {
-                console.warn('Bulutdan yuklash muvaffaqiyatsiz:', err);
-                return false;
-            });
+            if (!googleToken) return Promise.resolve(false);
+            return findDriveFile()
+                .then(file => {
+                    if (!file) return null;
+                    return driveFetch('https://www.googleapis.com/drive/v3/files/' + file.id + '?alt=media')
+                        .then(res => {
+                            if (!res.ok) throw new Error('HTTP ' + res.status);
+                            return res.json();
+                        });
+                })
+                .then(rec => {
+                    if (!rec) return false;
+                    let changed = false;
+                    if (Array.isArray(rec.students)) {
+                        students.splice(0, students.length, ...rec.students);
+                        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch (e) {}
+                        changed = true;
+                    }
+                    if (Array.isArray(rec.rentals)) {
+                        try { localStorage.setItem(RENT_STORAGE, JSON.stringify(rec.rentals)); } catch (e) {}
+                        changed = true;
+                    }
+                    if (typeof rec.univPhoto === 'string') {
+                        try {
+                            if (rec.univPhoto) localStorage.setItem(UNIV_PHOTO_KEY, rec.univPhoto);
+                            else localStorage.removeItem(UNIV_PHOTO_KEY);
+                        } catch (e) {}
+                        changed = true;
+                    }
+                    if (typeof rec.gmapsKey === 'string' && rec.gmapsKey) {
+                        gmapsKey = rec.gmapsKey;
+                        localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
+                    }
+                    return changed;
+                })
+                .catch(err => {
+                    console.warn('Google Drive o\'qish muvaffaqiyatsiz:', err);
+                    return false;
+                });
         }
 
         let cloudSyncTimer = null;
         function scheduleCloudPush() {
             clearTimeout(cloudSyncTimer);
             cloudSyncTimer = setTimeout(() => pushToCloud(), 800);
+        }
+
+        // Sahifa ochilganda avtomatik ulanish (sessiya saqlangan bo'lsa)
+        function tryAutoGoogle() {
+            if (!googleClientId || !window.google || !google.accounts) return;
+            initGoogleClient();
+            if (tokenClient) {
+                try {
+                    tokenClient.requestAccessToken({ prompt: '' });
+                } catch (e) {}
+            }
         }
 
         // ==================== BO'LIM ALMASHTIRISH ====================
@@ -2875,23 +2944,8 @@
 
         renderRentList();
 
-        // Bulutdan ma'lumot yuklash (agar sozlangan bo'lsa)
-        pullFromCloud().then(changed => {
-            if (changed) {
-                renderList();
-                renderMarkers();
-                renderRentList();
-                renderRentMapMarkers();
-                if (rentMap) {
-                    refreshUnivMarker();
-                    rentMap.invalidateSize();
-                }
-                if (document.getElementById('section2').style.display !== 'none') {
-                    refreshUnivPhotoUI();
-                }
-                showToast('☁️ Bulutdan ma\'lumotlar yuklandi');
-            }
-        });
+        // Google Drive'ga avtomatik ulanish (agar sessiya saqlangan bo'lsa)
+        tryAutoGoogle();
     </script>
 </body>
 </html>
