@@ -995,8 +995,8 @@
     <!-- ===================== BO'LIM 1: TALABA TRACKER ===================== -->
     <div id="section1" class="app-section">
 
-        <!-- Login oynasi -->
-        <div id="login-overlay" class="login-overlay">
+        <!-- Login oynasi (default yashirin — faqat admin sahifada va kirilmagan bo'lsa ko'rinadi) -->
+        <div id="login-overlay" class="login-overlay" style="display:none;">
             <div class="login-windows">
                 <div class="login-box">
                     <div class="login-title">👑 SUPER ADMIN</div>
@@ -1997,7 +1997,6 @@
         const LOGIN_PASS = 'AZIZ';
         const LOGIN_KEY = 'tolib_tracker_login';
         const IS_ADMIN_PAGE = window.location.pathname.includes('/admin/');
-
         function checkLogin() {
             if (!IS_ADMIN_PAGE) {
                 // Kuzatuvchi rejimi — loginsiz, faqat Bo'lim 2
