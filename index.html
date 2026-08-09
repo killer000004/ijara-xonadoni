@@ -1190,6 +1190,19 @@
 
         // Ma'lumotlarni localStorage ga saqlash (yangilaganda o'chmaydi)
         const STORAGE_KEY = 'tolib_tracker_students';
+        const SYNC_TS_KEY = 'tolib_tracker_sync_ts';
+
+        function getLocalSyncTs() {
+            try { return parseInt(localStorage.getItem(SYNC_TS_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+        }
+
+        function touchSyncTs() {
+            try { localStorage.setItem(SYNC_TS_KEY, String(Date.now())); } catch (e) {}
+        }
+
+        function touchSyncTsAt(ts) {
+            try { localStorage.setItem(SYNC_TS_KEY, String(Math.max(ts, getLocalSyncTs()))); } catch (e) {}
+        }
 
         function loadStudents() {
             try {
@@ -1204,9 +1217,13 @@
             return JSON.parse(JSON.stringify(defaultStudents));
         }
 
+        let hasRealStudents = !!localStorage.getItem(STORAGE_KEY);
+
         function saveStudents() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+                hasRealStudents = true;
+                touchSyncTs();
                 scheduleCloudPush();
             } catch (e) {
                 console.warn('Ma\'lumot saqlanmadi:', e);
@@ -1866,12 +1883,17 @@
 
         // ==================== BULUT SINXRONLASH (Google Drive) ====================
         function cloudPayload() {
-            return {
-                students: students,
+            const payload = {
+                updatedAt: Date.now(),
+                students: [],
                 rentals: getRentals(),
                 univPhoto: getUnivPhoto() || '',
                 gmapsKey: gmapsKey
             };
+            if (hasRealStudents) {
+                payload.students = students;
+            }
+            return payload;
         }
 
         function driveFetch(url, opts) {
@@ -1894,6 +1916,21 @@
             const payload = JSON.stringify(cloudPayload());
             return findDriveFile()
                 .then(file => {
+                    if (file) {
+                        // Bulutdagi ma'lumotni o'qib, yangiroq bo'lsa o'chirmaslik
+                        return driveFetch('https://www.googleapis.com/drive/v3/files/' + file.id + '?alt=media')
+                            .then(res => res.ok ? res.json() : null)
+                            .then(remote => {
+                                if (remote && remote.updatedAt && remote.updatedAt > (getLocalSyncTs() || 0)) {
+                                    return null;
+                                }
+                                return file;
+                            });
+                    }
+                    return file;
+                })
+                .then(file => {
+                    if (file === null) return false;
                     const uploadUrl = file
                         ? 'https://www.googleapis.com/upload/drive/v3/files/' + file.id + '?uploadType=media'
                         : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
@@ -1905,7 +1942,7 @@
                     });
                 })
                 .then(res => {
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status));
                     return true;
                 })
                 .catch(err => {
@@ -1927,9 +1964,16 @@
                 })
                 .then(rec => {
                     if (!rec) return false;
+                    const cloudTs = rec.updatedAt || 0;
+                    const localTs = getLocalSyncTs();
+                    if (cloudTs > 0 && localTs > cloudTs) {
+                        console.warn('Bulutdagi ma\'lumot eski, mahalliy saqlanadi');
+                        return false;
+                    }
                     let changed = false;
                     if (Array.isArray(rec.students)) {
                         students.splice(0, students.length, ...rec.students);
+                        hasRealStudents = true;
                         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch (e) {}
                         changed = true;
                     }
@@ -1948,6 +1992,7 @@
                         gmapsKey = rec.gmapsKey;
                         localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
                     }
+                    if (changed && cloudTs) touchSyncTsAt(cloudTs);
                     return changed;
                 })
                 .catch(err => {
@@ -2128,6 +2173,7 @@
             try {
                 if (dataUrl) localStorage.setItem(UNIV_PHOTO_KEY, dataUrl);
                 else localStorage.removeItem(UNIV_PHOTO_KEY);
+                touchSyncTs();
                 scheduleCloudPush();
                 return true;
             } catch (e) {
@@ -2295,6 +2341,7 @@
         function saveRentals(list) {
             try {
                 localStorage.setItem(RENT_STORAGE, JSON.stringify(list));
+                touchSyncTs();
                 scheduleCloudPush();
                 return true;
             } catch (e) {
