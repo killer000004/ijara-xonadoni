@@ -866,6 +866,108 @@
             border: 3px solid #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
+        /* ===================== RESPONSIVE (MOBILE/TABLET) ===================== */
+        @media (max-width: 1024px) {
+            body {
+                height: 100dvh;
+            }
+            header {
+                padding: 10px 14px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .logo {
+                font-size: 17px;
+            }
+            .section-tabs {
+                order: 3;
+                width: 100%;
+                margin: 2px 0 0;
+                flex: none;
+            }
+            .tab-btn {
+                flex: 1;
+                text-align: center;
+                padding: 10px 6px;
+                font-size: 12px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .header-actions {
+                gap: 8px;
+            }
+            .btn-settings, .btn-logout {
+                padding: 7px 10px;
+                font-size: 12px;
+            }
+            .user-info {
+                font-size: 12px;
+            }
+            .main-container {
+                flex-direction: column;
+            }
+            #map, #map2 {
+                height: 42vh;
+                flex: none;
+                order: -1;
+            }
+            sidebar {
+                width: 100%;
+                flex: 1;
+                border-right: none;
+                border-top: 1px solid #e0e0e0;
+            }
+            .login-box {
+                padding: 24px 20px;
+            }
+            #streetview-panel {
+                top: auto;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                max-width: 100%;
+                border-radius: 12px 12px 0 0;
+            }
+            #sv-frame {
+                height: 300px;
+            }
+        }
+        @media (max-width: 480px) {
+            header {
+                padding: 8px 10px;
+            }
+            .logo {
+                font-size: 15px;
+            }
+            .tab-btn {
+                font-size: 11px;
+                padding: 9px 4px;
+            }
+            #map, #map2 {
+                height: 38vh;
+            }
+            .photo-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .form-row {
+                gap: 6px;
+            }
+            .form-row input {
+                font-size: 12px;
+            }
+            .coords {
+                gap: 6px;
+            }
+            .photo-preview {
+                width: 56px;
+                height: 56px;
+            }
+            .login-title {
+                font-size: 18px;
+            }
+        }
     </style>
 </head>
 <body>
