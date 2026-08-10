@@ -6,8 +6,9 @@
     <title>Tolib-Tracker - Talabalar Lokatsiyasi</title>
     <!-- Leaflet CSS (Xarita uchun) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Google Identity Services (Drive sinxronlash uchun) -->
-    <script src="https://accounts.google.com/gsi/client"></script>
+    <!-- Firebase (bulut sinxronlash uchun — akkaunt talab qilmaydi) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -1154,10 +1155,6 @@
     <div id="settings-modal">
         <div class="settings-content">
             <h3>⚙️ Sozlamalar</h3>
-            <label for="google-client-id">Google Drive Client ID (OAuth)</label>
-            <input type="text" id="google-client-id" placeholder="Google OAuth Client ID (…apps.googleusercontent.com)">
-            <p class="settings-hint">Ma'lumotlar boshqa qurilmalarda ko'rinishi uchun Google Cloud konsolidan OAuth Client ID yarating (Web application) va shu yerga joylang.</p>
-            <button type="button" class="btn-add" id="btn-google-connect" style="margin-bottom:12px;">🔗 Google Drive'ga ulanish</button>
             <div id="cloud-status" class="settings-hint"></div>
             <label for="gmaps-key">Google Street View API kaliti</label>
             <input type="text" id="gmaps-key" placeholder="Google API kalit (Street View Static/Embed)">
@@ -1798,75 +1795,15 @@
         });
 
         // ==================== SOZLAMALAR ====================
-        const GCLIENT_ID_STORAGE = 'tolib_tracker_google_client_id';
-        const DEFAULT_GCLIENT_ID = '488899986676-afde7ggd19r6vpqpc3snl9ad0s5thpgl.apps.googleusercontent.com';
-        let googleClientId = localStorage.getItem(GCLIENT_ID_STORAGE) || DEFAULT_GCLIENT_ID;
-        let googleToken = null;
-        let tokenClient = null;
-        const DRIVE_FILE_NAME = 'tolib-tracker-data.json';
-
         function openSettings() {
-            document.getElementById('google-client-id').value = googleClientId;
             document.getElementById('gmaps-key').value = gmapsKey;
             const st = document.getElementById('cloud-status');
-            if (googleToken) {
-                st.innerHTML = '✅ Google Drive ulangan';
+            if (st) {
+                st.innerHTML = '✅ Bulut sinxronlash yoqilgan (Firebase) — barcha qurilmalar avtomatik ulanadi';
                 st.style.color = '#047857';
-            } else {
-                st.innerHTML = '🔗 Google Drive\u2019ga ulanish tugmasini bosing';
-                st.style.color = '#854d0e';
             }
             document.getElementById('settings-modal').style.display = 'flex';
         }
-
-        function initGoogleClient() {
-            if (!window.google || !google.accounts || !googleClientId) return;
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: googleClientId,
-                scope: 'https://www.googleapis.com/auth/drive.file',
-                callback: (resp) => {
-                    if (resp && resp.access_token) {
-                        googleToken = resp.access_token;
-                        showToast('✅ Google Drive ulandi');
-                        pullFromCloud().then(() => {
-                            renderList();
-                            renderMarkers();
-                            renderRentList();
-                            renderRentMapMarkers();
-                            if (rentMap) {
-                                refreshUnivMarker();
-                                rentMap.invalidateSize();
-                            }
-                            if (document.getElementById('section2').style.display !== 'none') {
-                                refreshUnivPhotoUI();
-                            }
-                            pushToCloud();
-                        });
-                    } else {
-                        showToast('❌ Google Drive ulanishi muvaffaqiyatsiz');
-                    }
-                }
-            });
-        }
-
-        document.getElementById('btn-google-connect').addEventListener('click', () => {
-            googleClientId = document.getElementById('google-client-id').value.trim();
-            localStorage.setItem(GCLIENT_ID_STORAGE, googleClientId);
-            if (!googleClientId) {
-                showToast('⚠️ Avval Client ID ni kiriting');
-                return;
-            }
-            if (googleToken) {
-                showToast('✅ Google Drive allaqachon ulangan');
-                return;
-            }
-            initGoogleClient();
-            if (tokenClient) {
-                tokenClient.requestAccessToken();
-            } else {
-                showToast('⚠️ Google skript yuklanmadi. Internetni tekshiring');
-            }
-        });
 
         document.getElementById('btn-settings').addEventListener('click', openSettings);
         document.getElementById('btn-cancel-key').addEventListener('click', () => {
@@ -1875,13 +1812,31 @@
         document.getElementById('btn-save-key').addEventListener('click', () => {
             gmapsKey = document.getElementById('gmaps-key').value.trim();
             localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
-            googleClientId = document.getElementById('google-client-id').value.trim();
-            localStorage.setItem(GCLIENT_ID_STORAGE, googleClientId);
             document.getElementById('settings-modal').style.display = 'none';
             showToast('✅ Sozlamalar saqlandi');
         });
 
-        // ==================== BULUT SINXRONLASH (Google Drive) ====================
+        // ==================== BULUT SINXRONLASH (Firebase — akkaunt talab qilmaydi) ====================
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyB0Ejd6ZWeyps8g2rZBMdQRkS58c6ZTqJY",
+            authDomain: "ijara-honadoni.firebaseapp.com",
+            databaseURL: "https://ijara-honadoni-default-rtdb.firebaseio.com",
+            projectId: "ijara-honadoni",
+            storageBucket: "ijara-honadoni.firebasestorage.app",
+            messagingSenderId: "224734604611",
+            appId: "1:224734604611:web:81064db1a1c15dfc9a13f6"
+        };
+        let firebaseReady = false;
+        function initFirebase() {
+            if (firebaseReady || !window.firebase || !firebase.app) return;
+            try {
+                if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+                firebaseReady = true;
+            } catch (e) {
+                console.warn('Firebase ishga tushmadi:', e);
+            }
+        }
+
         function cloudPayload() {
             const payload = {
                 updatedAt: Date.now(),
@@ -1896,73 +1851,27 @@
             return payload;
         }
 
-        function driveFetch(url, opts) {
-            return fetch(url, Object.assign({
-                headers: { 'Authorization': 'Bearer ' + googleToken }
-            }, opts || {}));
-        }
-
-        function findDriveFile() {
-            return driveFetch('https://www.googleapis.com/drive/v3/files?q=' +
-                encodeURIComponent("name='" + DRIVE_FILE_NAME + "' and trashed=false") +
-                '&fields=files(id,name,mimeType)')
-                .then(res => res.json())
-                .then(data => (data.files && data.files.length) ? data.files[0] : null)
-                .catch(() => null);
-        }
-
         function pushToCloud() {
-            if (!googleToken) return Promise.resolve(false);
-            const payload = JSON.stringify(cloudPayload());
-            return findDriveFile()
-                .then(file => {
-                    if (file) {
-                        // Bulutdagi ma'lumotni o'qib, yangiroq bo'lsa o'chirmaslik
-                        return driveFetch('https://www.googleapis.com/drive/v3/files/' + file.id + '?alt=media')
-                            .then(res => res.ok ? res.json() : null)
-                            .then(remote => {
-                                if (remote && remote.updatedAt && remote.updatedAt > (getLocalSyncTs() || 0)) {
-                                    return null;
-                                }
-                                return file;
-                            });
-                    }
-                    return file;
-                })
-                .then(file => {
-                    if (file === null) return false;
-                    const uploadUrl = file
-                        ? 'https://www.googleapis.com/upload/drive/v3/files/' + file.id + '?uploadType=media'
-                        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
-                    const method = file ? 'PATCH' : 'POST';
-                    return driveFetch(uploadUrl, {
-                        method: method,
-                        headers: { 'Content-Type': 'application/json' },
-                        body: payload
-                    });
-                })
-                .then(res => {
-                    if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status));
+            initFirebase();
+            if (!firebaseReady) return Promise.resolve(false);
+            const payload = cloudPayload();
+            return firebase.database().ref('tolib_tracker').set(payload)
+                .then(() => {
+                    touchSyncTsAt(payload.updatedAt);
                     return true;
                 })
                 .catch(err => {
-                    console.warn('Google Drive yozish muvaffaqiyatsiz:', err);
+                    console.warn('Firebase yozish muvaffaqiyatsiz:', err);
                     return false;
                 });
         }
 
         function pullFromCloud() {
-            if (!googleToken) return Promise.resolve(false);
-            return findDriveFile()
-                .then(file => {
-                    if (!file) return null;
-                    return driveFetch('https://www.googleapis.com/drive/v3/files/' + file.id + '?alt=media')
-                        .then(res => {
-                            if (!res.ok) throw new Error('HTTP ' + res.status);
-                            return res.json();
-                        });
-                })
-                .then(rec => {
+            initFirebase();
+            if (!firebaseReady) return Promise.resolve(false);
+            return firebase.database().ref('tolib_tracker').once('value')
+                .then(snap => {
+                    const rec = snap.val();
                     if (!rec) return false;
                     const cloudTs = rec.updatedAt || 0;
                     const localTs = getLocalSyncTs();
@@ -1996,7 +1905,7 @@
                     return changed;
                 })
                 .catch(err => {
-                    console.warn('Google Drive o\'qish muvaffaqiyatsiz:', err);
+                    console.warn('Firebase o\'qish muvaffaqiyatsiz:', err);
                     return false;
                 });
         }
@@ -2007,15 +1916,23 @@
             cloudSyncTimer = setTimeout(() => pushToCloud(), 800);
         }
 
-        // Sahifa ochilganda avtomatik ulanish (sessiya saqlangan bo'lsa)
-        function tryAutoGoogle() {
-            if (!googleClientId || !window.google || !google.accounts) return;
-            initGoogleClient();
-            if (tokenClient) {
-                try {
-                    tokenClient.requestAccessToken({ prompt: '' });
-                } catch (e) {}
-            }
+        // Sahifa ochilganda bulutdan ma'lumotlarni olish (akkauntsiz, avtomatik)
+        function tryAutoSync() {
+            initFirebase();
+            if (!firebaseReady) return;
+            pullFromCloud().then(changed => {
+                renderList();
+                renderMarkers();
+                renderRentList();
+                renderRentMapMarkers();
+                if (rentMap) {
+                    refreshUnivMarker();
+                    rentMap.invalidateSize();
+                }
+                if (document.getElementById('section2').style.display !== 'none') {
+                    refreshUnivPhotoUI();
+                }
+            });
         }
 
         // ==================== BO'LIM ALMASHTIRISH ====================
@@ -2988,8 +2905,8 @@
 
         renderRentList();
 
-        // Google Drive'ga avtomatik ulanish (agar sessiya saqlangan bo'lsa)
-        tryAutoGoogle();
+        // Bulutdan ma'lumotlarni avtomatik olish (akkauntsiz, barcha qurilmalar uchun)
+        tryAutoSync();
     </script>
 </body>
 </html>
