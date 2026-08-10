@@ -1840,7 +1840,6 @@
         function cloudPayload() {
             const payload = {
                 updatedAt: Date.now(),
-                students: [],
                 rentals: getRentals(),
                 univPhoto: getUnivPhoto() || '',
                 gmapsKey: gmapsKey
@@ -1919,7 +1918,11 @@
         // Sahifa ochilganda bulutdan ma'lumotlarni olish (akkauntsiz, avtomatik)
         function tryAutoSync() {
             initFirebase();
-            if (!firebaseReady) return;
+            if (!firebaseReady) {
+                // Firebase SDK hali yuklanmagan bo'lsa, birozdan keyin qayta urinamiz
+                setTimeout(tryAutoSync, 1000);
+                return;
+            }
             pullFromCloud().then(changed => {
                 renderList();
                 renderMarkers();
@@ -1932,7 +1935,61 @@
                 if (document.getElementById('section2').style.display !== 'none') {
                     refreshUnivPhotoUI();
                 }
+            }).catch(() => {
+                renderList();
+                renderMarkers();
+                renderRentList();
+                renderRentMapMarkers();
             });
+            setupRealtimeSync();
+        }
+
+        // Boshqa qurilmada ma'lumot o'zgarsa — shu qurilmada ham darhol yangilanadi
+        let realtimeBound = false;
+        function setupRealtimeSync() {
+            if (realtimeBound || !firebaseReady) return;
+            realtimeBound = true;
+            try {
+                firebase.database().ref('tolib_tracker').on('value', (snap) => {
+                    const rec = snap.val();
+                    if (!rec) return;
+                    const cloudTs = rec.updatedAt || 0;
+                    const localTs = getLocalSyncTs();
+                    if (cloudTs > 0 && localTs >= cloudTs) return;
+                    if (Array.isArray(rec.students)) {
+                        students.splice(0, students.length, ...rec.students);
+                        hasRealStudents = true;
+                        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch (e) {}
+                    }
+                    if (Array.isArray(rec.rentals)) {
+                        try { localStorage.setItem(RENT_STORAGE, JSON.stringify(rec.rentals)); } catch (e) {}
+                    }
+                    if (typeof rec.univPhoto === 'string') {
+                        try {
+                            if (rec.univPhoto) localStorage.setItem(UNIV_PHOTO_KEY, rec.univPhoto);
+                            else localStorage.removeItem(UNIV_PHOTO_KEY);
+                        } catch (e) {}
+                    }
+                    if (typeof rec.gmapsKey === 'string' && rec.gmapsKey) {
+                        gmapsKey = rec.gmapsKey;
+                        localStorage.setItem(GMAPS_KEY_STORAGE, gmapsKey);
+                    }
+                    if (cloudTs) touchSyncTsAt(cloudTs);
+                    renderList();
+                    renderMarkers();
+                    renderRentList();
+                    renderRentMapMarkers();
+                    if (rentMap) {
+                        refreshUnivMarker();
+                        rentMap.invalidateSize();
+                    }
+                    if (document.getElementById('section2').style.display !== 'none') {
+                        refreshUnivPhotoUI();
+                    }
+                });
+            } catch (e) {
+                console.warn('Realtime sync ishga tushmadi:', e);
+            }
         }
 
         // ==================== BO'LIM ALMASHTIRISH ====================
